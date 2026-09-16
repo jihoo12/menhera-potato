@@ -181,6 +181,34 @@ fn audit_conversion_accepts_same_capture() {
     assert!(nbe::conv(&mut store, 1, lam_a, lam_b));
 }
 
+#[test]
+fn audit_conversion_distinguishes_same_depth_neutral_vars_from_different_envs() {
+    let mut store = Store::new();
+
+    let left = nbe::fresh_var(&mut store, 0);
+    let right = nbe::fresh_var(&mut store, 0);
+
+    let env_left = store.envs.alloc(rock::Env {
+        parent: None,
+        value: left,
+    });
+    let env_right = store.envs.alloc(rock::Env {
+        parent: None,
+        value: right,
+    });
+
+    let left_tm = store.terms.alloc(Term::Var(0));
+    let right_tm = store.terms.alloc(Term::Var(0));
+
+    let left_val = nbe::eval(&mut store, Some(env_left), left_tm);
+    let right_val = nbe::eval(&mut store, Some(env_right), right_tm);
+
+    assert!(
+        !nbe::conv(&mut store, 0, left_val, right_val),
+        "UNSOUND: same-depth vars from distinct envs were treated as definitionally equal"
+    );
+}
+
 // -----------------------------------------------------------------------------
 // C. Strict positivity
 // -----------------------------------------------------------------------------

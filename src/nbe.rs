@@ -15,6 +15,7 @@ pub struct Store {
     pub envs: Arena<Env>,
     pub spines: Arena<Spine>,
     pub levels: Arena<Level>,
+    next_neutral_id: u64,
 }
 
 impl Store {
@@ -25,6 +26,7 @@ impl Store {
             envs: Arena::new(),
             spines: Arena::new(),
             levels: Arena::new(),
+            next_neutral_id: 0,
         }
     }
 
@@ -34,6 +36,7 @@ impl Store {
         self.envs.clear();
         self.spines.clear();
         self.levels.clear();
+        self.next_neutral_id = 0;
     }
 
     fn vb(&mut self) -> ValueBuilder<'_> {
@@ -41,6 +44,7 @@ impl Store {
             values: &mut self.values,
             envs: &mut self.envs,
             spines: &mut self.spines,
+            next_neutral_id: &mut self.next_neutral_id,
         }
     }
 }
@@ -274,7 +278,7 @@ pub fn quote(store: &mut Store, depth: u32, value: ValueId) -> TermId {
                 indices: indices_tm,
             })
         }
-        Value::Neut(Neutral { level, spine }) => {
+        Value::Neut(Neutral { level, spine, .. }) => {
             // Convert de Bruijn level → index relative to `depth`.
             let idx = depth
                 .checked_sub(level + 1)
@@ -398,7 +402,7 @@ pub fn conv(store: &mut Store, depth: u32, a: ValueId, b: ValueId) -> bool {
                     .all(|(&a, &b)| conv(store, depth, a, b))
         }
         (Value::Neut(na), Value::Neut(nb)) => {
-            if na.level != nb.level {
+            if na.level != nb.level || na.id != nb.id {
                 return false;
             }
             let elims_a = spine_elims(&store.spines, na.spine);
