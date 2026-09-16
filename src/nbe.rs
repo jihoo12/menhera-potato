@@ -15,7 +15,6 @@ pub struct Store {
     pub envs: Arena<Env>,
     pub spines: Arena<Spine>,
     pub levels: Arena<Level>,
-    next_neutral_id: u64,
 }
 
 impl Store {
@@ -26,7 +25,6 @@ impl Store {
             envs: Arena::new(),
             spines: Arena::new(),
             levels: Arena::new(),
-            next_neutral_id: 0,
         }
     }
 
@@ -36,7 +34,6 @@ impl Store {
         self.envs.clear();
         self.spines.clear();
         self.levels.clear();
-        self.next_neutral_id = 0;
     }
 
     fn vb(&mut self) -> ValueBuilder<'_> {
@@ -44,7 +41,6 @@ impl Store {
             values: &mut self.values,
             envs: &mut self.envs,
             spines: &mut self.spines,
-            next_neutral_id: &mut self.next_neutral_id,
         }
     }
 }
@@ -106,12 +102,13 @@ pub fn eval(store: &mut Store, env: Option<EnvId>, term: TermId) -> ValueId {
             def,
             idx,
             args,
-            indices,
+            indices: _,
         } => {
             let args_val: Vec<ValueId> = args.into_iter().map(|a| eval(store, env, a)).collect();
-            let indices_val: Vec<ValueId> =
-                indices.into_iter().map(|i| eval(store, env, i)).collect();
-            store.vb().con(def, idx, args_val, indices_val)
+            // Optional result indices are checked annotations, like Ann's type.
+            // Keeping them changes equality when one caller omits them. The
+            // definition and fields determine the indices at a checked type.
+            store.vb().con(def, idx, args_val, vec![])
         }
         Term::Case {
             target,
@@ -278,7 +275,7 @@ pub fn quote(store: &mut Store, depth: u32, value: ValueId) -> TermId {
                 indices: indices_tm,
             })
         }
-        Value::Neut(Neutral { level, spine, .. }) => {
+        Value::Neut(Neutral { level, spine }) => {
             // Convert de Bruijn level → index relative to `depth`.
             let idx = depth
                 .checked_sub(level + 1)
@@ -315,8 +312,10 @@ pub fn quote(store: &mut Store, depth: u32, value: ValueId) -> TermId {
     }
 }
 
-/// Definitional equality of values via quoting and structural compare,
-/// with level comparison for universes and η for functions/Π and pairs/Σ.
+/// Definitional equality by semantic structural comparison and η.
+/// Both operands must be well-typed in the same logical context at `depth`.
+/// In particular, all free neutral levels must be below `depth`. Environment
+/// length is not context depth: closures can contain substituted values.
 pub fn conv(store: &mut Store, depth: u32, a: ValueId, b: ValueId) -> bool {
     let a_val = store.values.get(a).clone();
     let b_val = store.values.get(b).clone();
@@ -367,7 +366,16 @@ pub fn conv(store: &mut Store, depth: u32, a: ValueId, b: ValueId) -> bool {
         }
         // Inductive type equality: same definition and same applied args
         // (handles both bare inductives and applied type families like Vec A n).
-        (Value::Inductive { def: da, args: ref aa }, Value::Inductive { def: db, args: ref ab }) => {
+        (
+            Value::Inductive {
+                def: da,
+                args: ref aa,
+            },
+            Value::Inductive {
+                def: db,
+                args: ref ab,
+            },
+        ) => {
             if da != db || aa.len() != ab.len() {
                 return false;
             }
@@ -402,7 +410,7 @@ pub fn conv(store: &mut Store, depth: u32, a: ValueId, b: ValueId) -> bool {
                     .all(|(&a, &b)| conv(store, depth, a, b))
         }
         (Value::Neut(na), Value::Neut(nb)) => {
-            if na.level != nb.level || na.id != nb.id {
+            if na.level != nb.level {
                 return false;
             }
             let elims_a = spine_elims(&store.spines, na.spine);

@@ -49,15 +49,13 @@ pub struct Closure {
 }
 
 /// Neutral head: stuck variable (de Bruijn *level*).
-/// The identity distinguishes two distinct locals that happen to share the same
-/// binder depth but live in different environments; the level alone is not a
-/// stable semantic identity across contexts.
+/// A level names a logical local in a shared context, not an allocation.
+/// Conversion requires both operands to be interpreted in that same context;
+/// unrelated contexts must be renamed into a common context first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Neutral {
     /// Absolute binder depth (level) of the free variable.
     pub level: u32,
-    /// Stable identity of this neutral variable within the current evaluation.
-    pub id: u64,
     pub spine: Option<SpineId>,
 }
 
@@ -85,7 +83,8 @@ pub enum Value {
         def: TermId,
         idx: usize,
         args: Vec<ValueId>,
-        /// Index values for indexed types
+        /// Legacy annotation payload. Evaluation of checked terms erases
+        /// optional index annotations, so kernel-produced values leave this empty.
         indices: Vec<ValueId>,
     },
     /// Neutral stuck term
@@ -96,7 +95,6 @@ pub struct ValueBuilder<'a> {
     pub values: &'a mut Arena<Value>,
     pub envs: &'a mut Arena<Env>,
     pub spines: &'a mut Arena<Spine>,
-    pub next_neutral_id: &'a mut u64,
 }
 
 impl<'a> ValueBuilder<'a> {
@@ -141,10 +139,8 @@ impl<'a> ValueBuilder<'a> {
     }
 
     pub fn neut_var(&mut self, level: u32) -> ValueId {
-        let id = *self.next_neutral_id;
-        *self.next_neutral_id += 1;
         self.values
-            .alloc(Value::Neut(Neutral { level, id, spine: None }))
+            .alloc(Value::Neut(Neutral { level, spine: None }))
     }
 
     pub fn extend_env(&mut self, parent: Option<EnvId>, value: ValueId) -> EnvId {
@@ -159,7 +155,6 @@ impl<'a> ValueBuilder<'a> {
         let spine = Some(self.extend_spine(neut.spine, Elim::App(arg)));
         self.values.alloc(Value::Neut(Neutral {
             level: neut.level,
-            id: neut.id,
             spine,
         }))
     }
@@ -168,7 +163,6 @@ impl<'a> ValueBuilder<'a> {
         let spine = Some(self.extend_spine(neut.spine, Elim::Fst));
         self.values.alloc(Value::Neut(Neutral {
             level: neut.level,
-            id: neut.id,
             spine,
         }))
     }
@@ -177,7 +171,6 @@ impl<'a> ValueBuilder<'a> {
         let spine = Some(self.extend_spine(neut.spine, Elim::Snd));
         self.values.alloc(Value::Neut(Neutral {
             level: neut.level,
-            id: neut.id,
             spine,
         }))
     }
@@ -186,7 +179,6 @@ impl<'a> ValueBuilder<'a> {
         let spine = Some(self.extend_spine(neut.spine, Elim::Case { motive, branches }));
         self.values.alloc(Value::Neut(Neutral {
             level: neut.level,
-            id: neut.id,
             spine,
         }))
     }

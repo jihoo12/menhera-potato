@@ -1,8 +1,6 @@
 use rock::nbe::{self, Store};
 use rock::term::{ConstructorDef, Term};
-use rock::{
-    Ctx, TypeError, check, infer, nat_def, type_n, type0,
-};
+use rock::{Ctx, TypeError, check, infer, nat_def, type_n, type0};
 
 fn empty_def(store: &mut Store) -> rock::TermId {
     let l0 = store.levels.alloc(rock::Level::Zero);
@@ -181,33 +179,9 @@ fn audit_conversion_accepts_same_capture() {
     assert!(nbe::conv(&mut store, 1, lam_a, lam_b));
 }
 
-#[test]
-fn audit_conversion_distinguishes_same_depth_neutral_vars_from_different_envs() {
-    let mut store = Store::new();
-
-    let left = nbe::fresh_var(&mut store, 0);
-    let right = nbe::fresh_var(&mut store, 0);
-
-    let env_left = store.envs.alloc(rock::Env {
-        parent: None,
-        value: left,
-    });
-    let env_right = store.envs.alloc(rock::Env {
-        parent: None,
-        value: right,
-    });
-
-    let left_tm = store.terms.alloc(Term::Var(0));
-    let right_tm = store.terms.alloc(Term::Var(0));
-
-    let left_val = nbe::eval(&mut store, Some(env_left), left_tm);
-    let right_val = nbe::eval(&mut store, Some(env_right), right_tm);
-
-    assert!(
-        !nbe::conv(&mut store, 0, left_val, right_val),
-        "UNSOUND: same-depth vars from distinct envs were treated as definitionally equal"
-    );
-}
+// Same-level allocations denote the same local only when compared in one
+// logical context. Unrelated contexts require renaming into a common context.
+// Checked-context reconstruction is covered in audit_second_pass.rs.
 
 // -----------------------------------------------------------------------------
 // C. Strict positivity
@@ -237,8 +211,7 @@ fn audit_nested_inductive_cannot_hide_negative_outer_occurrence() {
     // So the negative occurrence of Outer is hidden inside a nested inductive.
 
     let outer_ref_inside_inner = store.terms.alloc(Term::Var(1));
-    let outer_to_bool =
-        store.terms.alloc(Term::Pi(outer_ref_inside_inner, bool_tm));
+    let outer_to_bool = store.terms.alloc(Term::Pi(outer_ref_inside_inner, bool_tm));
 
     let inner = store.terms.alloc(Term::Inductive {
         level: l0,
@@ -354,13 +327,7 @@ fn audit_constructor_out_of_range_is_rejected() {
     });
 
     assert!(
-        check(
-            &mut store,
-            Ctx::empty(),
-            impossible_constructor,
-            bool_val
-        )
-        .is_err(),
+        check(&mut store, Ctx::empty(), impossible_constructor, bool_val).is_err(),
         "kernel accepted an out-of-range constructor index"
     );
 }

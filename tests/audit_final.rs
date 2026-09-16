@@ -72,8 +72,12 @@ fn assert_nat_nf(store: &mut Store, nat: TermId, tm: TermId, expected: u32) {
     let mut n = 0;
     loop {
         match store.terms.get(cur) {
-            Term::Con { def, idx: 0, args, .. } if *def == nat && args.is_empty() => break,
-            Term::Con { def, idx: 1, args, .. } if *def == nat && args.len() == 1 => {
+            Term::Con {
+                def, idx: 0, args, ..
+            } if *def == nat && args.is_empty() => break,
+            Term::Con {
+                def, idx: 1, args, ..
+            } if *def == nat && args.len() == 1 => {
                 n += 1;
                 cur = args[0];
             }
@@ -182,7 +186,7 @@ fn batch3_open_sigma_roundtrips_without_capture() {
 }
 
 #[test]
-fn batch3_inductive_body_sees_outer_lambda_binder_at_shifted_index() {
+fn batch3_captured_inductive_requires_explicit_parameters() {
     let mut store = Store::new();
 
     // λ(A : Type0). data BoxA : Type0 where box : A -> BoxA
@@ -207,8 +211,12 @@ fn batch3_inductive_body_sees_outer_lambda_binder_at_shifted_index() {
     let family_ty = store.terms.alloc(Term::Pi(dom, cod));
     let family_ty_v = nbe::eval(&mut store, None, family_ty);
 
-    check(&mut store, Ctx::empty(), family, family_ty_v)
-        .expect("outer binder was captured incorrectly inside Inductive");
+    // The former acceptance test only checked formation and missed that NBE
+    // discarded A. Such declarations now require explicit parameters.
+    assert_eq!(
+        check(&mut store, Ctx::empty(), family, family_ty_v),
+        Err(rock::TypeError::UnsupportedInductiveCapture)
+    );
 }
 
 // -----------------------------------------------------------------------------

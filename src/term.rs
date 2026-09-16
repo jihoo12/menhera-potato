@@ -29,6 +29,9 @@ pub enum Term {
     /// Second projection `snd p`
     Snd(TermId),
     /// User-defined inductive type definition.
+    /// Declarations must be closed with respect to the caller's locals: use
+    /// explicit `params` for such dependencies. Semantic nominal identity is
+    /// the definition's TermId, without a captured environment.
     ///
     /// Constructor body context is extended by self, then indices, then params.
     /// In argument type k (with k earlier arguments bound), self is Var(i+p+k),

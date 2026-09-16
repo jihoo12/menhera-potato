@@ -40,6 +40,9 @@ pub enum TypeError {
     CannotInferParameters,
     /// A constructor mentions a formal index not supplied as an explicit field.
     UnsupportedIndexDependency,
+    /// Definitions have nominal identity and do not store a captured environment.
+    /// Express dependencies on outer locals as explicit parameters instead.
+    UnsupportedInductiveCapture,
 }
 
 pub type Result<T> = std::result::Result<T, TypeError>;
@@ -145,6 +148,13 @@ fn form_family(
     indices: &[TermId],
     constructors: &[ConstructorDef],
 ) -> Result<ValueId> {
+    // Nominal definitions are represented by TermId alone in values and quote.
+    // Accepting a captured local would erase its substitution, identifying e.g.
+    // Box Nat and Box Empty. Until definitions carry closures throughout NBE,
+    // require closed declarations (explicit parameters remain supported).
+    if (0..ctx.depth).any(|i| var_occurs(&store.terms, def, i)) {
+        return Err(TypeError::UnsupportedInductiveCapture);
+    }
     let mut signature_ctx = ctx;
     for &entry in params.iter().chain(indices) {
         let ty = check_is_type(store, signature_ctx, entry)?;
@@ -212,7 +222,12 @@ fn form_family(
         }
         let mut field_ctx = body_ctx;
         for &tm in &con.arg_types {
-            let ty = check_is_type(store, field_ctx, tm)?;
+            let sort = infer(store, field_ctx, tm)?;
+            let field_level = nbe::force_univ(store, sort).ok_or(TypeError::ExpectedUniv)?;
+            if !level::leq_level(&store.levels, field_level, level) {
+                return Err(TypeError::LevelMismatch);
+            }
+            let ty = nbe::eval(store, field_ctx.env, tm);
             field_ctx = field_ctx.bind(store, ty);
         }
         // Result expressions live under ALL fields. Declared index types live
