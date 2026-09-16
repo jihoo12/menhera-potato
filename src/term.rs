@@ -101,7 +101,10 @@ pub struct ConstructorDef {
     pub recursive: Vec<bool>,
     /// Index expressions for this constructor.
     /// These are terms that compute the index values when this constructor is applied.
-    /// Use the body context extended by all constructor arguments.
+    /// Use the body context extended by all constructor arguments. Expressions
+    /// must be self-free in the supported direct-recursion fragment; referring
+    /// to earlier fields (including recursive fields) is not a self reference.
+    /// Eliminating the datatype being declared is unavailable during formation.
     /// For non-indexed types (Nat, Bool): empty.
     /// For Vec: the length index expression (e.g., suc n for nil/suc).
     pub indices: Vec<TermId>,

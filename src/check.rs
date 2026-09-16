@@ -43,6 +43,8 @@ pub enum TypeError {
     /// Definitions have nominal identity and do not store a captured environment.
     /// Express dependencies on outer locals as explicit parameters instead.
     UnsupportedInductiveCapture,
+    /// The eliminator is unavailable until its inductive declaration is formed.
+    UnsupportedSelfElimination,
 }
 
 pub type Result<T> = std::result::Result<T, TypeError>;
@@ -134,6 +136,21 @@ fn bind_value(store: &mut Store, ctx: Ctx, ty: ValueId, value: ValueId) -> Ctx {
         types: Some(store.vb_extend_env(ctx.types, ty)),
         depth: ctx.depth + 1,
     }
+}
+
+/// Only formation introduces concrete family values as context locals (self).
+/// Ordinary checked binders are neutrals. Search all enclosing formation frames
+/// so a nested declaration cannot use an unfinished outer eliminator either.
+fn is_forming_inductive(store: &Store, mut env: Option<EnvId>, def: TermId) -> bool {
+    while let Some(id) = env {
+        let frame = store.envs.get(id);
+        if matches!(store.values.get(frame.value), Value::Inductive { def: active, .. } if *active == def)
+        {
+            return true;
+        }
+        env = frame.parent;
+    }
+    false
 }
 
 /// Check the Pi telescope before evaluating its raw syntax. This prevents a
@@ -683,6 +700,12 @@ pub fn infer(store: &mut Store, ctx: Ctx, term: TermId) -> Result<ValueId> {
                 _ => return Err(TypeError::ExpectedInductive),
             };
 
+            // A Case on a field of the datatype currently being formed would
+            // re-enter infer(def) below before that declaration is validated.
+            if is_forming_inductive(store, ctx.env, target_def) {
+                return Err(TypeError::UnsupportedSelfElimination);
+            }
+
             let (ind_params, ind_indices, constructors) = {
                 let def_term = store.terms.get(target_def).clone();
                 match def_term {
@@ -956,6 +979,17 @@ fn check_strict_positivity(
     for con in constructors {
         if con.recursive.len() != con.arg_types.len() {
             return Err(TypeError::InvalidRecursiveMetadata);
+        }
+        // The result telescope binds every field, but no induction hypotheses.
+        // The supported direct-recursion fragment requires self-free indices:
+        // field-only positivity would otherwise accept c : D (D Empty -> Empty).
+        let result_self = (num_indices + num_params + con.arg_types.len()) as u32;
+        if con
+            .indices
+            .iter()
+            .any(|&index| var_occurs(terms, index, result_self))
+        {
+            return Err(TypeError::NotStrictlyPositive);
         }
         for (k, (&arg_ty, &flag)) in con.arg_types.iter().zip(&con.recursive).enumerate() {
             let d = (num_indices + num_params + k) as u32;
