@@ -1,0 +1,14 @@
+[package]
+name = "menhera"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "rock"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rock"
+path = "src/main.rs"
+
+[dependencies]
