@@ -46,8 +46,10 @@ An inductive type declaration `Inductive { level: ℓ, params: [A₁,...,Aₘ], 
 Constructor body context layout (innermost first):
 
 ```
-self : D | indices | params | field₀ | field₁ | ...
+self : D | formal index slots | params | field₀ | field₁ | ...
 ```
+
+The formal index slots exist only to keep the internal de Bruijn layout compatible with the family telescope. Constructor field types and result-index expressions must not refer to these slots directly; a varying index needed by a constructor must instead be represented by an explicit constructor field.
 
 In argument type position `k`, `self` is at `Var(n + m + k)`.
 
@@ -71,7 +73,7 @@ Induction hypotheses are interleaved immediately after each recursive field.
 | `Pair(V₁, V₂)` | Pair of values |
 | `Univ(ℓ)` | Universe at level `ℓ` |
 | `Inductive { def, args }` | Type family reference applied to accumulated args |
-| `Con { def, idx, args, indices }` | Constructed value |
+| `Con { def, idx, args, indices }` | Constructed value; `indices` is a legacy annotation payload and is empty for kernel-produced values |
 | `Neut(Neutral)` | Stuck neutral term |
 
 #### Neutral Terms
@@ -121,7 +123,7 @@ For iota reduction: the branch for constructor `Kᵢ` is applied to each constru
 | **Pair-cong** | `a₁ ≡ a₂` and `b₁ ≡ b₂` ⟹ `(a₁,b₁) ≡ (a₂,b₂)` |
 | **Univ-cong** | `ℓ₁ = ℓ₂` ⟹ `Type ℓ₁ ≡ Type ℓ₂` |
 | **Ind-cong** | same `def`, same `args` count, pairwise conversion ⟹ `Inductive ≡ Inductive` |
-| **Con-cong** | same `def`, same `idx`, args pairwise conv, indices pairwise conv ⟹ `Con ≡ Con` |
+| **Con-cong** | same `def`, same `idx`, args pairwise conv, indices pairwise conv ⟹ `Con ≡ Con`; the indices comparison is vacuous for values produced by checked evaluation |
 | **Neut-eq** | same `level`, same spine length, elim-by-elim conversion ⟹ `Neut ≡ Neut` |
 
 ### 2.3 η-Rules
@@ -211,7 +213,8 @@ Lookup the type of variable `i` in the context.
 ```
 D is Inductive { params=[], indices, constructors }
 Kᵢ is the i-th constructor with fields [F₁,...,Fₖ]
-Γ ⊢ aⱼ ⇐ Fⱼ[prev_args/self/params/indices]   for j = 1..k
+Γ ⊢ aⱼ ⇐ Fⱼ[prev_args/self/params/formal-index-slots]   for j = 1..k
+(the formal index slots are layout placeholders and cannot occur in Fⱼ)
 computed indices = eval(con_def.indices) with args bound
 ─────────────────────────────────────────────────────────────
 Γ ⊢ Con { def: D, idx: i, args: [a₁,...,aₖ], ... } ⇒ D indices...
@@ -231,6 +234,7 @@ verify computed indices ≡ expected indices
 ```
 Γ ⊢ t ⇒ D p₁…pₘ i₁…iₙ
 motive : (x : D p₁…i₁…) → Type ℓ  (uniform over fresh indices)
+the runtime motive ABI is unary: indices are not additional motive arguments
 branchᵢ has type: Π fields. [ih if recursive]... → P (K fields...)
   (for each constructor Kᵢ)
 ─────────────────────────────────────────────────────────────
@@ -314,7 +318,7 @@ Maps syntax to semantic values under an environment:
 | `Univ(ℓ)` | `Univ(ℓ)` |
 | `Ann(m, _)` | `eval(m)` (ascription erased) |
 | `Inductive{...}` | `Inductive { def: term, args: [] }` (args accumulated lazily via apply) |
-| `Con{def, idx, args, ...}` | `Con { def, idx, eval(args), [] }` (indices erased) |
+| `Con{def, idx, args, indices}` | `Con { def, idx, eval(args), [] }`; `indices` is a checked annotation and is erased |
 | `Case{target, motive, branches}` | `case_reduce(eval(motive), eval(branches), eval(target))` |
 
 ### 4.2 Application (`apply`)
@@ -371,7 +375,7 @@ Universe levels support cumulativity via `leq_level`:
 Type ℓ₁ : Type ℓ₂   when   ℓ₁ ≤ ℓ₂
 ```
 
-Level comparison is conservative:
+Level comparison is a conservative decidable approximation, not the complete semantic ordering of symbolic `max` expressions:
 - Constant offsets are compared directly
 - Each level variable's individual offset must be ≤ the corresponding variable in the target
 
@@ -400,15 +404,15 @@ D : Π(p₁:A₁). ... Π(pₘ:Aₘ). Π(i₁:I₁). ... Π(iₙ:Iₙ). Type ℓ
 Constructor `Kⱼ` with fields `f₁:B₁, ..., fᵣ:Bᵣ` and result indices `e₁,...,eₙ`:
 
 ```
-D self indices params ⊢ B₁ : Type ℓⱼ
-D self indices params f₁:B₁ ⊢ B₂ : Type ℓⱼ
+D self [formal index slots] params ⊢ B₁ : Type ℓⱼ
+D self [formal index slots] params f₁:B₁ ⊢ B₂ : Type ℓⱼ
 ...
 Γ_fields ⊢ eₖ : Iₖ(params, computed_indices)
 ─────────────────────────────────────────────
-Kⱼ : Π params. Π indices. Π f₁:B₁. ... Π fᵣ:Bᵣ. D params e₁...eₙ
+Kⱼ : Π params. Π f₁:B₁. ... Π fᵣ:Bᵣ. D params e₁...eₙ
 ```
 
-Field types are evaluated in the constructor environment (self, indices, params, preceding fields). Result index expressions are evaluated after all fields are bound.
+Formal index slots are present in the internal constructor-body layout but are not binders in the constructor's introduction telescope. Field types and result-index expressions may depend on `self`, parameters, and preceding explicit fields as appropriate, but they must not refer directly to the formal index slots. Any varying index required by a constructor must be carried by an explicit field. Result index expressions are evaluated after all fields are bound and determine the indices of the constructed family value.
 
 ### 6.3 Strict Positivity
 
@@ -431,7 +435,7 @@ This is a conservative subset: nested inductives, function types containing `D`,
 case t as x in P { K₁ b₁ ⇒ e₁ ; ... ; Kₖ bₖ ⇒ eₖ } : P t
 ```
 
-The motive `P` is a unary function from the inductive type to a universe. For indexed families, the motive must typecheck uniformly across fresh index variables.
+The motive `P` is a unary function from the inductive type to a universe. For indexed families, the checker validates it uniformly across fresh index variables, but the runtime ABI still passes only the target value; indices are not separate motive arguments. This is a restricted encoding rather than a general `Π indices. D params indices → Type` runtime recursor.
 
 Branch type for constructor `Kⱼ` with fields `f₁,...,fᵣ` and recursive flags:
 
@@ -441,7 +445,7 @@ Branch type for constructor `Kⱼ` with fields `f₁,...,fᵣ` and recursive fla
 
 ### 6.5 Computational Behavior
 
-- **iota-reduction**: `case (K a₁...aᵣ) branches = branch a₁...a₁ ih₁...ihₛ`
+- **iota-reduction**: `case (K a₁...aᵣ) branches = branch a₁...aᵣ ih₁...ihₛ`
   where `ihᵢ = case aᵢ branches` for each recursive argument `aᵢ`
 - **Neutral case**: stuck case expressions accumulate on the spine
 
