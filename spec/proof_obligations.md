@@ -19,7 +19,7 @@ All baseline obligations below remain **Open**; completed fragments are recorded
 
 | ID | Required statement / scope | Main specification sections | Proof artifact |
 |---|---|---|---|
-| SCOPE | Weakening, substitution, and environment well-formedness preserve scope and typing; signature/body permutation preserves interpretation | §1, §3, §7 | [Ordinary-term renaming fragment](proofs/scope-renaming.md): proved (mechanized); full obligation open |
+| SCOPE | Weakening, substitution, and environment well-formedness preserve scope and typing; signature/body permutation preserves interpretation | §1, §3, §7 | [Renaming](proofs/scope-renaming.md) and [simultaneous substitution](proofs/scope-substitution.md) ordinary-term fragments: proved (mechanized); full obligation open |
 | LEVEL | Level normalization/equality and the specified ordering are sound for the chosen level semantics; successor and max preserve needed properties | §1.1, §5 | Not supplied |
 | FORM | Accepted family declarations and constructor telescopes are well-formed; closure, saturation, universes, positivity and result-index restrictions are sufficient for the claimed fragment | §3.2, §6.1–6.3 | Not supplied |
 | CONV | Successful semantic conversion entails equality in an independently stated logical relation at a common type/context, including the implemented η-cases and nominal identities | §2, §4 | Not supplied |
@@ -43,9 +43,20 @@ The logical target of TYPE and CONV must be defined independently of the impleme
   its corollary. No open proof dependencies for this fragment. Syntax labels
   are opaque; contexts are represented only by length. Canonical rules and
   production Rust are unchanged; there is no Rust refinement result.
-  Substitution, typing, environments, levels/quotation, inductive scope and
+  Beyond the substitution fragment below, typing, environments, levels/quotation, inductive scope and
   signature/body interpretation remain open. The artifact records commands,
   assumptions, validation and the next proposed lemma.
+
+- **SCOPE / ordinary-term simultaneous substitution — Proved (mechanized).**
+  [Proof artifact](proofs/scope-substitution.md), checked from source with
+  Agda 2.8.0, `--ignore-interfaces --no-libraries --safe --without-K`.
+  `subst-scoped` preserves independent syntactic scope for the same ten
+  constructors when every in-scope source index maps to a target-scoped
+  term. `liftSubst-scoped` reuses the proved `weaken-scoped` corollary.
+  Dependencies are discharged for this fragment only. Canonical rules and
+  production Rust are unchanged. Typing preservation, environments,
+  inductive scope, levels/quotation, signature/body interpretation and
+  Rust refinement remain open; overall **SCOPE is Open**.
 
 ## Feature proof record
 

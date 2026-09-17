@@ -107,6 +107,10 @@ Inductive, Con and Case are absent from this fragment.
 
 ### What remains open and next lemma
 
+Historical boundary of the renaming milestone: the ordinary-term substitution
+lemma proposed below is now checked in the [substitution artifact](scope-substitution.md).
+The other obligations listed here remain open.
+
 SCOPE remains **Open** overall. Remaining work includes substitution scope
 preservation; an independent typing/context relation and typing weakening
 and substitution; environments/closures and their interpretation; neutral
