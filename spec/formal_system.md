@@ -1,6 +1,27 @@
 # Formal System: menhera MLTT Kernel
 
-This document describes the formal system implemented by the menhera (rock) kernel — a Martin-Löf Type Theory (MLTT) with predicative universes, dependent function types, dependent pair types, and a restricted fragment of parameterized/indexed inductive types. This is an implementation description, not a proof of kernel soundness.
+This is the canonical specification of the menhera (`rock`) kernel: a Martin-Löf Type Theory fragment with predicative universes, dependent functions, dependent pairs, and restricted parameterized/indexed inductive types.
+
+## 0. Status, scope and notation
+
+**Baseline status:** implemented and source-audited; global soundness is not yet proved. This edition reorganizes the implementation description from commit `84fd75e3e4ef7b5a64234aa07b534e8c773283a4` without extending its calculus. Proof obligations and evidence belong in [proof_obligations.md](proof_obligations.md).
+
+For future changes, follow [AGENTS.md](../AGENTS.md): update the specification, discharge the required soundness obligations, then implement and validate. Mark future rules as proposed/unimplemented until their proof and implementation stages finish. This document governs intended behavior; existing code is evidence of current behavior, not a reason to silently weaken a rule.
+
+| Notation | Meaning |
+|---|---|
+| `Γ ⊢ t ⇒ A` | Algorithmic inference synthesizes type `A` |
+| `Γ ⊢ t ⇐ A` | Algorithmic checking accepts `t` at expected type `A` |
+| `Γ ⊢ t : A` | Mathematical typing notation in explanatory schemas; a separate declarative relation for soundness remains a proof obligation |
+| `A ≡ B` | Implemented conversion relation (§2), unless an explicitly defined logical relation is named |
+| `ℓ₁ ≤ ℓ₂` | The level comparison algorithm specified in §5 |
+| `D p₁…pₘ i₁…iₙ` | Family applied to parameters first, then indices |
+| `t[a/x]` | Capture-avoiding substitution; implementation uses environment/closure instantiation |
+| `Var(a..b)` | Half-open range of de Bruijn indices, including `a` and excluding `b` |
+
+Named-binder formulas are explanatory notation for the de Bruijn syntax. Typing rules assume well-formed contexts, valid arena references, and well-formed expected types. Mathematical binder/level arithmetic assumes no overflow; bounds of the Rust representation require a separate refinement argument. Neither these assumptions nor the algorithms below are a completed metatheory.
+
+Sections 1, 3, 5 and 6 specify syntax and admissibility; §2 specifies conversion; §4 describes evaluation; §7 fixes representation conventions. Source correspondence is recorded in §8.
 
 ---
 
@@ -48,8 +69,10 @@ An inductive type declaration `Inductive { level: ℓ, params: [A₁,...,Aₘ], 
 Constructor body context extension order (outermost to innermost, each group in declaration order):
 
 ```
-self : D | formal index slots | params | field₀ | field₁ | ...
+self : FamilyType(D) | formal index slots | params | field₀ | field₁ | ...
 ```
+
+Here `FamilyType(D) = Π params. Π indices. Type ℓ`; the semantic value assigned to `self` is the bare family `D`, not an inhabitant of `D`.
 
 The formal index slots exist only to keep the internal de Bruijn layout compatible with the family telescope. Constructor field types and result-index expressions must not refer to these slots directly; a varying index needed by a constructor must instead be represented by an explicit constructor field.
 
@@ -60,7 +83,7 @@ In argument type position `k`, `self` is at `Var(n + m + k)`, parameters occupy 
 For a constructor with `k` fields and `r` recursive occurrences, the corresponding case branch has `k + r` binders:
 
 ```
-λ field₀. [ih₀ if recursive] field₁. [ih₁ if recursive] ... → result
+λ field₀. [λ ih₀. if recursive] λ field₁. [λ ih₁. if recursive] ... result
 ```
 
 Induction hypotheses are interleaved immediately after each recursive field.
@@ -83,8 +106,10 @@ Induction hypotheses are interleaved immediately after each recursive field.
 A neutral is a variable (de Bruijn *level*) with an elimination spine:
 
 ```
-Neutral { level: ℓ, spine: Elim* }
+Neutral { level: d, spine: Elim* }
 ```
+
+Here `d` is a binder depth, unrelated to universe level `ℓ`.
 
 Spine eliminations:
 - `App(v)` — function application
@@ -132,7 +157,7 @@ Here `interleave(a, ih)` is an argument list, not a tuple argument: each field `
 
 | Rule | Statement |
 |---|---|
-| **η-fun** | `f ≡ λx. f x` for fresh `x` (Lam ≡ Neut: compare body with application of neutral to fresh var) |
+| **η-fun** | A lambda and a neutral function convert when the instantiated body converts to that neutral applied to a fresh variable; in particular, `f ≡ λx. f x` for neutral `f` and fresh `x` |
 | **η-pair** | `(fst p, snd p) ≡ p` (Pair ≡ Neut: compare projections) |
 
 ---
@@ -227,16 +252,6 @@ computed indices = eval(con_def.indices) with args bound
 
 Both constructor paths validate the declaration, constructor number, and exact field count. `Term::Con.indices` may be empty; otherwise it must contain exactly all result indices, typecheck in the caller context against the instantiated index telescope, and convert pairwise to the computed values.
 
-#### Con (checking mode, with expected type)
-```
-expected type = D p₁…pₘ i₁…iₙ (Inductive value with params and indices)
-extract param_vals = [p₁,...,pₘ], expected_index_vals = [i₁,...,iₙ]
-check each arg against field type in constructor env
-verify computed indices ≡ expected indices
-─────────────────────────────────────────────────────────────
-Γ ⊢ Con { def: D, idx: i, args: [a₁,...,aₖ], ... } ⇐ D p₁…pₘ i₁…iₙ
-```
-
 #### Case
 ```
 Γ ⊢ t ⇒ D p₁…pₘ i₁…iₙ
@@ -288,9 +303,14 @@ force_sigma(A) = (A₁, A₂)
 Γ ⊢ (a, b) ⇐ Σ(x:A₁). A₂
 ```
 
-#### Con (checking)
+#### Con
 ```
-See Con checking mode in §3.2
+expected type = D p₁…pₘ i₁…iₙ (Inductive value with params and indices)
+extract param_vals = [p₁,...,pₘ], expected_index_vals = [i₁,...,iₙ]
+check each arg against field type in constructor env
+verify computed indices ≡ expected indices
+─────────────────────────────────────────────────────────────
+Γ ⊢ Con { def: D, idx: i, args: [a₁,...,aₖ], ... } ⇐ D p₁…pₘ i₁…iₙ
 ```
 
 #### Conversion
@@ -393,9 +413,16 @@ Universe levels support cumulativity via `leq_level`:
 In particular: Γ ⊢ Type ℓ ⇐ Type L requires leq_level(suc ℓ, L).
 ```
 
-Level comparison is a conservative decidable approximation, not the complete semantic ordering of symbolic `max` expressions:
-- Constant offsets are compared directly
-- Each level variable's individual offset must be ≤ the corresponding variable in the target
+Let `N(ℓ) = (c, V)` be the normalized constant offset and finite variable-offset map from §1.1. The implemented comparison is defined exactly by:
+
+```
+leq_level(a, b) =
+    N(a).c ≤ N(b).c
+    and, for every (α, k) in N(a).V,
+        N(b).V contains (α, k') with k ≤ k'
+```
+
+Additional variables on the right are permitted. This document specifies that algorithm; a semantic soundness or completeness theorem about level ordering must be established separately (LEVEL in the proof ledger).
 
 Thus `Type 0 : Type 1`, but not `Type 0 : Type 0`. Cumulativity is the universe fallback in checking; it is not recursive subtyping of Pi or Sigma types.
 
@@ -422,11 +449,11 @@ D : Π(p₁:A₁). ... Π(pₘ:Aₘ). Π(i₁:I₁). ... Π(iₙ:Iₙ). Type ℓ
 Constructor `Kⱼ` with fields `f₁:B₁, ..., fᵣ:Bᵣ` and result indices `e₁,...,eₙ`:
 
 ```
-D self [formal index slots] params ⊢ B₁ : Type ℓⱼ
-D self [formal index slots] params f₁:B₁ ⊢ B₂ : Type ℓⱼ
-...
-Γ_fields ⊢ eₖ ⇐ Iₖ(params, e₁, ..., eₖ₋₁)
-each field universe ℓⱼ satisfies leq_level(ℓⱼ, ℓ)
+Γ_body = self : FamilyType(D), [formal index slots], params
+Γ_body, f₁:B₁, ..., fₛ₋₁:Bₛ₋₁ ⊢ Bₛ ⇒ Type uₛ    (1 ≤ s ≤ r)
+leq_level(uₛ, ℓ) for every field s
+Γ_fields = Γ_body, f₁:B₁, ..., fᵣ:Bᵣ
+Γ_fields ⊢ eₖ ⇐ Iₖ(params, e₁, ..., eₖ₋₁)          (1 ≤ k ≤ n)
 ─────────────────────────────────────────────
 Kⱼ : Π params. Π f₁:B₁. ... Π fᵣ:Bᵣ. D params e₁...eₙ
 ```
@@ -448,7 +475,7 @@ For each constructor argument at position `k`:
 3. The recursive metadata vector must have exactly one flag per field, and each flag must match the structural recurrence analysis exactly
 4. Result index expressions must not contain the distinguished `self` variable (located at `Var(n + m + r)` after all `r` fields are bound)
 
-This is a conservative subset: nested inductives, function types containing `D`, and `D` inside Sigma types are all rejected.
+This is a syntactic restriction on recursive occurrences: nesting `self` under another type constructor, under a function type, or inside a Sigma is rejected, even when a more general positivity checker could accept it. This does not prohibit every independent nested declaration. Occurrence checks are binder-aware and do not normalize syntax to hide an occurrence.
 
 ### 6.4 Elimination (Case Analysis)
 
@@ -484,11 +511,25 @@ Conversion between them during quote: `index = depth - level - 1`.
 
 ---
 
-## 8. References
+## 8. Implementation correspondence and proof boundary
+
+| Specification | Implementation entry points |
+|---|---|
+| Syntax and constructor metadata (§1, §6) | [term.rs](../src/term.rs): `Term`, `ConstructorDef` |
+| Level equality and ordering (§1.1, §5) | [level.rs](../src/level.rs): `normalize`, `eq_level`, `leq_level` |
+| Typing and family formation (§3, §6) | [check.rs](../src/check.rs): `infer`, `check`, `form_family` |
+| Constructor annotations and branch/motive checks (§3, §6.4) | [check.rs](../src/check.rs): `check_explicit_indices`, `check_motive`, `build_branch_type` |
+| Positivity and scope (§6.3, §7) | [check.rs](../src/check.rs): `recurrence`, `check_strict_positivity`, `var_occurs` |
+| Conversion and computation (§2, §4) | [nbe.rs](../src/nbe.rs): `conv`, `eval`, `case_reduce`, `quote` |
+| Environments and neutral values (§1.3, §7) | [value.rs](../src/value.rs): `Env`, `Neutral`, `env_lookup` |
+
+This mapping documents correspondence, not a proof. In particular, successful source audits or differential tests do not establish preservation, normalization, canonicity or consistency. New features must supply the applicable proof artifacts described in [proof_obligations.md](proof_obligations.md) before implementation.
+
+## 9. References
 
 - Martin-Löf, P. (1984). *Intuitionistic Type Theory*. Bibliopolis. §1 pp. 13-15, §3 p. 24.
 - Nordström, T., Petersson, K., & Smith, J.M. (1990). *Programming in Martin-Löf's Type Theory*. Oxford University Press. Chapter 8 "Datatypes".
 - Coquand, T. & Paulin, C. (1988). "Inductively Defined Types". *COLOG-88*. §3 "Positivity condition".
 - Giménez, E. (1996). "Codifying Guarded Definitions with Recursive Schemes". *TYPES'95*.
 - Lean 4 kernel: `src/kernel/inductive.cpp`, `src/kernel/type_checker.cpp`.
-- Agda 2.8.0: used as reference implementation for differential testing.
+- Agda 2.8.0: reference implementation for the [differential test harness](../tests/differential/README.md). Agreement on the test corpus is not a proof of this kernel's soundness.
