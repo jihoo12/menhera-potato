@@ -51,7 +51,7 @@ self : D | formal index slots | params | field₀ | field₁ | ...
 
 The formal index slots exist only to keep the internal de Bruijn layout compatible with the family telescope. Constructor field types and result-index expressions must not refer to these slots directly; a varying index needed by a constructor must instead be represented by an explicit constructor field.
 
-In argument type position `k`, `self` is at `Var(n + m + k)`.
+In argument type position `k`, `self` is at `Var(n + m + k)`, parameters occupy `Var(k..k+m)`, and the `k` preceding fields occupy `Var(0..k)`. The same formula is used when checking or inferring a constructor application; inference requires `m = 0`, so it specializes to `Var(n + k)`.
 
 #### Branch Telescope
 
@@ -212,6 +212,9 @@ Lookup the type of variable `i` in the context.
 #### Con (inference mode, no parameters)
 ```
 D is Inductive { params=[], indices, constructors }
+(parameters must be empty because bare constructor syntax provides no expected
+family type from which parameter values could be recovered; otherwise inference
+fails with CannotInferParameters)
 Kᵢ is the i-th constructor with fields [F₁,...,Fₖ]
 Γ ⊢ aⱼ ⇐ Fⱼ[prev_args/self/params/formal-index-slots]   for j = 1..k
 (the formal index slots are layout placeholders and cannot occur in Fⱼ)
@@ -233,7 +236,8 @@ verify computed indices ≡ expected indices
 #### Case
 ```
 Γ ⊢ t ⇒ D p₁…pₘ i₁…iₙ
-motive : (x : D p₁…i₁…) → Type ℓ  (uniform over fresh indices)
+motive : Π(x : D p₁…pₘ i₁…iₙ). Type ℓ  (uniform over fresh indices)
+the motive term may be a lambda or any inferable term with this Pi type
 the runtime motive ABI is unary: indices are not additional motive arguments
 branchᵢ has type: Π fields. [ih if recursive]... → P (K fields...)
   (for each constructor Kᵢ)
@@ -414,6 +418,8 @@ Kⱼ : Π params. Π f₁:B₁. ... Π fᵣ:Bᵣ. D params e₁...eₙ
 
 Formal index slots are present in the internal constructor-body layout but are not binders in the constructor's introduction telescope. Field types and result-index expressions may depend on `self`, parameters, and preceding explicit fields as appropriate, but they must not refer directly to the formal index slots. Any varying index required by a constructor must be carried by an explicit field. Result index expressions are evaluated after all fields are bound and determine the indices of the constructed family value.
 
+The displayed type is the general constructor schema: both parameters and computed result indices are applied to `D`. In checking mode, parameter values are recovered from the expected type before the computed indices are applied. In inference mode, the kernel requires the parameter telescope to be empty, so the same result specializes to `D e₁...eₙ`; a parameterized constructor cannot be inferred without an expected type.
+
 ### 6.3 Strict Positivity
 
 For each constructor argument at position `k`:
@@ -424,8 +430,8 @@ For each constructor argument at position `k`:
    - Applied to exactly `params + indices` arguments
    - All arguments are self-free (do not reference `D`)
    - Parameter arguments must be the original parameters (identity substitution)
-3. Recursive metadata flag must match the structural analysis exactly
-4. Result index expressions must be self-free
+3. The recursive metadata vector must have exactly one flag per field, and each flag must match the structural recurrence analysis exactly
+4. Result index expressions must not contain the distinguished `self` variable (located at `Var(n + m + r)` after all `r` fields are bound)
 
 This is a conservative subset: nested inductives, function types containing `D`, and `D` inside Sigma types are all rejected.
 
@@ -435,7 +441,7 @@ This is a conservative subset: nested inductives, function types containing `D`,
 case t as x in P { K₁ b₁ ⇒ e₁ ; ... ; Kₖ bₖ ⇒ eₖ } : P t
 ```
 
-The motive `P` is a unary function from the inductive type to a universe. For indexed families, the checker validates it uniformly across fresh index variables, but the runtime ABI still passes only the target value; indices are not separate motive arguments. This is a restricted encoding rather than a general `Π indices. D params indices → Type` runtime recursor.
+The motive `P` is a unary function from the inductive type to a universe. Syntactically it may be a lambda `λx. body`, whose body is inferred to inhabit a universe under `x`, or any other inferable term whose type is definitionally `Π(x : D p₁...pₘ i₁...iₙ). Type ℓ` (for example, a variable or neutral motive). For indexed families, the checker validates it uniformly across fresh index variables, but the runtime ABI still passes only the target value; indices are not separate motive arguments. This is a restricted encoding rather than a general `Π indices. D params indices → Type` runtime recursor.
 
 Branch type for constructor `Kⱼ` with fields `f₁,...,fᵣ` and recursive flags:
 
