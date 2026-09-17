@@ -15,11 +15,11 @@ Implementation and test status must be recorded separately from proof status. Do
 
 ## Baseline obligations
 
-All rows below are **Open**. These are proof tasks, not established theorems; their precise statements and any required declarative relation must be supplied in the proof artifacts.
+All baseline obligations below remain **Open**; completed fragments are recorded separately. These are proof tasks, not established theorems; their precise statements and any required declarative relation must be supplied in the proof artifacts.
 
 | ID | Required statement / scope | Main specification sections | Proof artifact |
 |---|---|---|---|
-| SCOPE | Weakening, substitution, and environment well-formedness preserve scope and typing; signature/body permutation preserves interpretation | §1, §3, §7 | Not supplied |
+| SCOPE | Weakening, substitution, and environment well-formedness preserve scope and typing; signature/body permutation preserves interpretation | §1, §3, §7 | [Ordinary-term renaming fragment](proofs/scope-renaming.md): proved (mechanized); full obligation open |
 | LEVEL | Level normalization/equality and the specified ordering are sound for the chosen level semantics; successor and max preserve needed properties | §1.1, §5 | Not supplied |
 | FORM | Accepted family declarations and constructor telescopes are well-formed; closure, saturation, universes, positivity and result-index restrictions are sufficient for the claimed fragment | §3.2, §6.1–6.3 | Not supplied |
 | CONV | Successful semantic conversion entails equality in an independently stated logical relation at a common type/context, including the implemented η-cases and nominal identities | §2, §4 | Not supplied |
@@ -33,6 +33,19 @@ All rows below are **Open**. These are proof tasks, not established theorems; th
 Typical dependencies include scope/level lemmas before typing and conversion arguments, family formation and motive lemmas before ι-preservation, and normalization/canonicity arguments before consistency. This is guidance for planning, not a proof dependency graph already shown to be acyclic.
 
 The logical target of TYPE and CONV must be defined independently of the implementation's success result; defining typing as “the checker accepts” would make soundness circular. Preservation alone does not establish normalization, canonicity or consistency.
+
+## Completed baseline fragments
+
+- **SCOPE / ordinary-term renaming — Proved (mechanized).**
+  [Proof artifact](proofs/scope-renaming.md), checked with Agda 2.8.0.
+  `rename-scoped` preserves independent syntactic scope for the ten ordinary
+  term constructors under a bound-respecting index map; `weaken-scoped` is
+  its corollary. No open proof dependencies for this fragment. Syntax labels
+  are opaque; contexts are represented only by length. Canonical rules and
+  production Rust are unchanged; there is no Rust refinement result.
+  Substitution, typing, environments, levels/quotation, inductive scope and
+  signature/body interpretation remain open. The artifact records commands,
+  assumptions, validation and the next proposed lemma.
 
 ## Feature proof record
 
